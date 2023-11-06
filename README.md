@@ -1,1 +1,3 @@
 # COMP_PLS-SEM
+
+The variables included in this dataset consist of four variables measured using component data, among which Attitude, PBC, and BI are latent variables, while Subject Norms (SNnew) is not a latent variable—respondents are required to describe the extent of influence that family, friends, and others have on their decision-making. For Attitude, PBC, and BI, the dataset includes the collected raw data, but the two columns for Subject Norms are the result of an ilr transformation, a process that can be referred to in the paper by Kogovšek et al., 2013. Users can implement this transformation using tools such as Excel.
