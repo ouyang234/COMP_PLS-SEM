@@ -1,5 +1,7 @@
 # FROM seminr
 
+
+## original
 cron_alpha <- function(cov_mat) {
   k <- nrow(cov_mat)
   cov_i <- sum(diag(cov_mat))
@@ -7,6 +9,7 @@ cron_alpha <- function(cov_mat) {
   return(alpha)
 }
 
+## original
 cronbachs_alpha <- function(seminr_model) {
   constructs = colnames(plsModel$path_coef)
   alpha_vec <- c()
@@ -36,6 +39,7 @@ cronbachs_alpha <- function(seminr_model) {
 #   return(CRs)
 # }
 
+## use comp_group to denote whether use the block of compositinal variable
 calculate_CR <- function(seminr_model, comp_group = NULL) {
   
   if (is.null(comp_group)) {
@@ -80,6 +84,7 @@ calculate_CR <- function(seminr_model, comp_group = NULL) {
 #   return(AVEs)
 # }
 
+## use comp_group to denote whether use the block of compositinal variable
 calculate_AVE <- function(seminr_model, comp_group = NULL) {
   if (is.null(comp_group)) {
     loadings <- rowSums(seminr_model$outer_loadings)
@@ -109,9 +114,8 @@ calculate_AVE <- function(seminr_model, comp_group = NULL) {
 }
 
 
-
 # from seminr
-
+## original
 calculate_HTMT <- function(seminr_model) {
   if (is.null(seminr_model$hoc)) {
     constructs <- intersect(unique(seminr_model$smMatrix),unique(seminr_model$mmMatrix[,1 ]))
@@ -147,6 +151,7 @@ calculate_HTMT <- function(seminr_model) {
   convert_to_table_output(HTMT)
 }
 
+## original
 calculate_R2 = function(seminr_model) {
     Rsquard = c()
     constructs = colnames(plsModel$path_coef)
@@ -155,6 +160,7 @@ calculate_R2 = function(seminr_model) {
     return(unlist(Rsquard))
 }
 
+## original
 calculate_Q2 <- function(seminr_model, D = 7) {
   dataset = seminr_model$data
   construct_scores <- as.data.frame(seminr_model$construct_scores)
@@ -193,7 +199,8 @@ calculate_Q2 <- function(seminr_model, D = 7) {
   return(Q2_values)
 }
 
-calculate_bootstrap <- function(seminr_model, nboot = 500, cores = 2, seed) {
+## original
+calculate_bootstrap <- function(seminr_model, nboot = 10000, cores = 2, seed) {
     # Bootstrapping for significance as per Hair, J. F., Hult, G. T. M., Ringle, C. M., and Sarstedt, M. (2017). A Primer on
     # Partial Least Squares Structural Equation Modeling (PLS-SEM), 2nd Ed., Sage: Thousand Oaks.
     message("Bootstrapping model using seminr...")
