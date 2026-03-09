@@ -1,224 +1,278 @@
 rm(list = ls())
-source('comp_function.R')
-source('seminr.R')
+source("comp_function.R")
+source("seminr.R")
 
 library(readxl)
 library(dplyr)
 library(psych)
-# library(seminr)
 library(caret)
 library(Metrics)
 library(lmtest)
 library(MASS)
 
-######## Step 0: Data preprocessing ########
-data = read_excel("data_sub.xlsx", sheet= 1)
-SN = data[,31:32]
-data = data[,1:30]
+# ==============================================================================
+# Step 0: Data Preprocessing
+#
+# Read the raw dataset from Excel. The first 30 columns contain the raw
+# compositional measurements for Attitude (cols 1-12), PBC (cols 13-21),
+# and BI (cols 22-30). Each construct has 3-part compositions repeated
+# multiple times (e.g., Attitude has 4 compositions × 3 parts = 12 cols).
+# Columns 31-32 are the already ILR-transformed Subject Norms (SNnew).
+# Zero values are replaced with 0.001 to avoid log(0) in ILR transformation.
+# ==============================================================================
 
-colnames(data) = c(multi_items("Attitude", 1:12),
-                   multi_items("PBC", 1:9), 
-                   multi_items("BI", 1:9)
-                  )
+data <- read_excel("data_sub.xlsx", sheet = 1)
+SN   <- data[, 31:32]
+data <- data[, 1:30]
 
-data = as.matrix(data)
-data[which(data == 0)] = 0.001
+colnames(data) <- c(
+  multi_items("Attitude", 1:12),
+  multi_items("PBC", 1:9),
+  multi_items("BI", 1:9)
+)
 
-######## Step 1: Transform each compositional variable with ILR ########
-# Define a function to apply compositional closure to sets of 3-part
-becomp = function(i) {
-  return(Closure(as.data.frame(data)[,(3*i-2):(3*i)]))
-}
+data <- as.matrix(data)
+data[data == 0] <- 0.001
 
-# Define a function to apply ilr transformation to sets of 3 columns
-do.ilr = function(i) {
-  return(ilr(data[,(3*i-2):(3*i)]))
-}
+# ==============================================================================
+# Step 1: ILR Transformation of Compositional Variables
+#
+# Each group of 3 columns represents one 3-part composition. There are 10
+# such groups across the 30 columns (Attitude: 4 groups, PBC: 3, BI: 3).
+#
+# 1) Apply compositional closure so each row sums to 1 within its 3-part group.
+# 2) Apply the ILR (Isometric Log-Ratio) transformation to map each 3-part
+#    composition to 2 real-valued coordinates in the Aitchison simplex.
+#    This reduces 30 columns to 20, plus the 2 SNnew columns = 22 total.
+# ==============================================================================
 
-# Apply the ilr transformation to the data
-data = do.call("cbind", apply(matrix(1:10), 1, becomp))
-data.ilr = do.call("cbind", lapply(matrix(1:10), do.ilr))
+becomp <- function(i) Closure(as.data.frame(data)[, (3 * i - 2):(3 * i)])
+do.ilr <- function(i) ilr(data[, (3 * i - 2):(3 * i)])
 
-# Rename columns for the ilr-transformed data
-colnames(data.ilr) = c(multi_items("Attitude", 1:8), 
-                       multi_items("PBC", 1:6), 
-                       multi_items("BI", 1:6)
-                      )
+data     <- do.call("cbind", apply(matrix(1:10), 1, becomp))
+data.ilr <- do.call("cbind", lapply(matrix(1:10), do.ilr))
 
-# Combine the ilr-transformed data with the SN columns
-data.ilr = cbind(data.ilr, SN)
+# After ILR: Attitude has 8 cols (4 compositions × 2), PBC 6, BI 6
+colnames(data.ilr) <- c(
+  multi_items("Attitude", 1:8),
+  multi_items("PBC", 1:6),
+  multi_items("BI", 1:6)
+)
 
-head(data.ilr)
-dim(data.ilr)
-obsData <- data.ilr
+# Combine ILR-transformed indicators with the pre-transformed SNnew columns
+data.ilr <- cbind(data.ilr, SN)
+obsData  <- data.ilr
 
+head(obsData)
+dim(obsData)
 
-######## Step 2: Specify the ILR-transformed indicators to relate to their constructs ########
-######## as well as the measurement model and structural model ######## 
-# Define the measurement model (outer model) with constructs and their corresponding indicators
+# ==============================================================================
+# Step 2: Specify Measurement and Structural Models
+#
+# Measurement model (outer model): defines which ILR-transformed indicators
+# belong to which construct. All constructs use Mode A (correlation weights).
+#   - Attitude: 8 indicators (Attitude1–8)
+#   - BI:       6 indicators (BI1–6)
+#   - PBC:      6 indicators (PBC1–6)
+#   - SNnew:    2 indicators (SNnew1–2)
+#
+# Structural model (inner model): defines the path relationships between
+# constructs following the Theory of Planned Behavior (TPB):
+#   SNnew → Attitude, SNnew → PBC, SNnew → BI, Attitude → BI, PBC → BI
+# ==============================================================================
+
 mm_model <- constructs(
   composite("Attitude", multi_items("Attitude", 1:8), weights = mode_A),
-  composite("BI", multi_items("BI", 1:6), weights = mode_A),
-  composite("PBC", multi_items("PBC", 1:6), weights = mode_A),
-  composite("SNnew", multi_items("SNnew", 1:2), weights = mode_A)
+  composite("BI",       multi_items("BI", 1:6),       weights = mode_A),
+  composite("PBC",      multi_items("PBC", 1:6),      weights = mode_A),
+  composite("SNnew",    multi_items("SNnew", 1:2),     weights = mode_A)
 )
 
-# Define the structural model (inner model) with paths between constructs
 sm_model <- relationships(
-  paths(from = "SNnew", to = "Attitude"),
-  paths(from = "SNnew", to = "PBC"),
-  paths(from = "SNnew", to = "BI"), 
+  paths(from = "SNnew",    to = "Attitude"),
+  paths(from = "SNnew",    to = "PBC"),
+  paths(from = "SNnew",    to = "BI"),
   paths(from = "Attitude", to = "BI"),
-  paths(from = "PBC", to = "BI")
+  paths(from = "PBC",      to = "BI")
 )
 
-# Create the structural model matrix
+# Convert model specifications into matrix format required by the PLS algorithm
 smMatrix <- sm_model
 measurement_model <- mm_model
 
-# Extract constructs and measurements for the measurement model
 recognized_constructs <- c("composite", "reflective", "higher_order_composite")
 construct_measurements <- measurement_model[names(measurement_model) %in% recognized_constructs]
-mmMatrix <- matrix(unlist(construct_measurements),
-                   ncol = 3, byrow = TRUE,
-                   dimnames = list(NULL, c("construct", "measurement", "type"))
+mmMatrix <- matrix(
+  unlist(construct_measurements),
+  ncol = 3, byrow = TRUE,
+  dimnames = list(NULL, c("construct", "measurement", "type"))
 )
 
-# Get the construct names from the structural model matrix
 constructs <- construct_names(smMatrix)
-# Extract measurement variables for the constructs
-mmVariables <- mmMatrix[mmMatrix[,"construct"] %in% constructs, "measurement"]
-# Determine the measurement mode scheme for each construct
-measurement_mode_scheme <- sapply(unique(c(sm_model[,1], sm_model[,2])), get_measure_mode, mmMatrix, USE.NAMES = TRUE)
+mmVariables <- mmMatrix[mmMatrix[, "construct"] %in% constructs, "measurement"]
 
+# Determine the weighting mode (A or B) for each construct
+measurement_mode_scheme <- sapply(
+  unique(c(sm_model[, 1], sm_model[, 2])),
+  get_measure_mode, mmMatrix, USE.NAMES = TRUE
+)
 
-######## Step 3: Standardize the data ########
-# Standardize the data
+# ==============================================================================
+# Step 3: Standardize the Data
+#
+# Center and scale all measurement variables to zero mean and unit variance.
+# This is required before running the PLS-SEM algorithm. The mean and SD are
+# saved for later denormalization in the prediction step.
+# ==============================================================================
+
 normData <- standardize_safely(obsData[, mmVariables])
 meanData <- attr(normData, "scaled:center")
-sdData <- attr(normData, "scaled:scale")
+sdData   <- attr(normData, "scaled:scale")
 
-######## Step 4: Estimate using the standard PLS-SEM algorithm ########
-# Set the maximum number of iterations and stop criterion for the PLS algorithm
-maxIt <- 300
+# ==============================================================================
+# Step 4: Estimate PLS-SEM Model
+#
+# Run the PLS-SEM algorithm via the seminr package's simplePLS function.
+# - maxIt = 300: maximum number of iterations for the PLS algorithm
+# - stopCriterion = 7: convergence threshold (10^-7 for weight change)
+# - inner_weights = path_weighting: use the path weighting scheme
+#
+# After estimation, attach the standardized data and raw data to the model
+# object so that evaluation functions can access them.
+# ==============================================================================
+
+maxIt         <- 300
 stopCriterion <- 7
-# Fit the PLS-SEM model using seminr packages
-plsModel = seminr::simplePLS(obsData = normData,
-                             smMatrix = smMatrix,
-                             mmMatrix = mmMatrix,
-                             inner_weights = path_weighting,
-                             maxIt = maxIt,
-                             stopCriterion = stopCriterion,
-                             measurement_mode_scheme = measurement_mode_scheme)
 
-# Add standardized and raw data to the plsModel object
-plsModel$data = normData
-plsModel$rawdata = obsData
-plsModel$measurement_model = mm_model
-plsModel$structural_model = sm_model
-
-# Extract measurement variables name
-measurement_name <- plsModel$mmMatrix[plsModel$mmMatrix[,"construct"] == "BI","measurement"]
-
-######## Step 5: Evaluate the model with PLSpredict ######## 
-source('PLSpredict.R')
-# Use Prediction Metrics in CVPAT Method
-predictionMetrics <- validatePredict(normData, smMatrix, mmMatrix, noFolds=10)
-predictionMetrics$PLSRMSE
-predictionMetrics$LMRMSE
-predictionMetrics$PLSMAPE
-predictionMetrics$LMMAPE
-predictionMetrics$PLSMAD
-predictionMetrics$LMMAD
-
-# Load prediction metrics from the CVPAT results
-PLSRMSE <- predictionMetrics$PLSRMSE
-LMRMSE <- predictionMetrics$LMRMSE
-PLSMAPE <- predictionMetrics$PLSMAPE
-LMMAPE <- predictionMetrics$LMMAPE
-PLSMAD <- predictionMetrics$PLSMAD
-LMMAD <- predictionMetrics$LMMAD
-
-# Define blocks for the compositional data
-blocks <- list(
-  c("BI1", "BI2"),
-  c("BI3", "BI4"),
-  c("BI5", "BI6")
+plsModel <- seminr::simplePLS(
+  obsData = normData,
+  smMatrix = smMatrix,
+  mmMatrix = mmMatrix,
+  inner_weights = path_weighting,
+  maxIt = maxIt,
+  stopCriterion = stopCriterion,
+  measurement_mode_scheme = measurement_mode_scheme
 )
 
-# Function to calculate block metrics (RMSE, MAPE, MAD)
+plsModel$data              <- normData
+plsModel$rawdata           <- obsData
+plsModel$measurement_model <- mm_model
+plsModel$structural_model  <- sm_model
+
+# Extract the measurement variable names for the endogenous construct BI
+measurement_name <- plsModel$mmMatrix[plsModel$mmMatrix[, "construct"] == "BI", "measurement"]
+
+# ==============================================================================
+# Step 5: Evaluate Model with PLSpredict (10-fold Cross-Validation)
+#
+# Use K-fold cross-validation (K=10) to assess out-of-sample predictive power.
+# For each fold, PLS and a naive linear model (LM) are both estimated, and
+# three prediction error metrics are computed:
+#   - RMSE (Root Mean Square Error)
+#   - MAPE (Mean Absolute Percentage Error)
+#   - MAD  (Mean Absolute Deviation)
+#
+# If PLS metrics are lower than LM metrics, the model has predictive power
+# beyond a simple linear benchmark.
+#
+# Since BI's indicators are ILR-transformed (each pair corresponds to one
+# original composition), we also aggregate metrics at the compositional block
+# level: (BI1,BI2), (BI3,BI4), (BI5,BI6) each represent one composition.
+# Block RMSE = sqrt(mean of squared per-column RMSE within the block).
+# ==============================================================================
+
+source("PLSpredict.R")
+
+predictionMetrics <- validatePredict(normData, smMatrix, mmMatrix, noFolds = 10)
+
+cat("PLS RMSE:\n"); print(predictionMetrics$PLSRMSE)
+cat("LM  RMSE:\n"); print(predictionMetrics$LMRMSE)
+cat("PLS MAPE:\n"); print(predictionMetrics$PLSMAPE)
+cat("LM  MAPE:\n"); print(predictionMetrics$LMMAPE)
+cat("PLS MAD:\n");  print(predictionMetrics$PLSMAD)
+cat("LM  MAD:\n");  print(predictionMetrics$LMMAD)
+
+PLSRMSE <- predictionMetrics$PLSRMSE
+LMRMSE  <- predictionMetrics$LMRMSE
+PLSMAPE <- predictionMetrics$PLSMAPE
+LMMAPE  <- predictionMetrics$LMMAPE
+PLSMAD  <- predictionMetrics$PLSMAD
+LMMAD   <- predictionMetrics$LMMAD
+
+# Define compositional blocks: each pair of ILR columns maps to one composition
+blocks <- list(c("BI1", "BI2"), c("BI3", "BI4"), c("BI5", "BI6"))
+
 calculate_block_metrics <- function(metrics_rmse, metrics_mape, metrics_mad, blocks) {
   results <- data.frame()
-  
-  # Iterate through each block to calculate metrics
   for (block in blocks) {
-    rmse_cols <- block
-    mape_cols <- block
-    mad_cols <- block
-    
-    # Calculate RMSE, MAPE, and MAD for the block
-    RMSE_block <- sqrt(rowSums(metrics_rmse[, rmse_cols, drop = FALSE]^2) / length(rmse_cols))
-    MAPE_block <- rowMeans(metrics_mape[, mape_cols, drop = FALSE])
-    MAD_block <- rowMeans(metrics_mad[, mad_cols, drop = FALSE])
-    
-    # Store the calculated metrics in the results dataframe
+    RMSE_block <- sqrt(rowSums(metrics_rmse[, block, drop = FALSE]^2) / length(block))
+    MAPE_block <- rowMeans(metrics_mape[, block, drop = FALSE])
+    MAD_block  <- rowMeans(metrics_mad[, block, drop = FALSE])
     results <- rbind(results, data.frame(
       block = paste0(block, collapse = ","),
       RMSE = mean(RMSE_block),
       MAPE = mean(MAPE_block),
-      MAD = mean(MAD_block)
+      MAD  = mean(MAD_block)
     ))
   }
-  
   return(results)
 }
 
-# Calculate block metrics for PLS model
 pls_block_metrics <- calculate_block_metrics(PLSRMSE, PLSMAPE, PLSMAD, blocks)
+lm_block_metrics  <- calculate_block_metrics(LMRMSE, LMMAPE, LMMAD, blocks)
 
-# Calculate block metrics for LM model
-lm_block_metrics <- calculate_block_metrics(LMRMSE, LMMAPE, LMMAD, blocks)
-
-# Combine the results for PLS and LM models into a summary dataframe
 block_metrics_summary <- data.frame(
-  block = pls_block_metrics$block,
+  block    = pls_block_metrics$block,
   RMSE_pls = pls_block_metrics$RMSE,
-  RMSE_lm = lm_block_metrics$RMSE,
+  RMSE_lm  = lm_block_metrics$RMSE,
   MAPE_pls = pls_block_metrics$MAPE,
-  MAPE_lm = lm_block_metrics$MAPE,
-  MAD_pls = pls_block_metrics$MAD,
-  MAD_lm = lm_block_metrics$MAD
+  MAPE_lm  = lm_block_metrics$MAPE,
+  MAD_pls  = pls_block_metrics$MAD,
+  MAD_lm   = lm_block_metrics$MAD
 )
-
-# Print the summary of block metrics
 print(block_metrics_summary)
 
-######## Step 6: Evaluate the model using measures such as COMP-CR, Cronbach's alpha, and etc. ######## 
-# Source the evaluation functions from evaluation.R
-source('evaluation.R')
+# ==============================================================================
+# Step 6: Evaluate Model Quality
+#
+# Measurement model evaluation:
+#   - Cronbach's Alpha: internal consistency reliability for each construct.
+#   - Composite Reliability (CR): similar to alpha but uses outer loadings.
+#   - Compositional CR (COMP-CR): CR computed at the compositional block level
+#     by grouping ILR indicator pairs back to their original compositions.
+#     'comp_group' maps each indicator row to its parent composition.
+#
+# Structural model evaluation:
+#   - R-squared: variance explained in endogenous constructs.
+#   - Bootstrap (nboot=10000): significance testing of path coefficients via
+#     resampling. Returns bootstrap means, SDs, and confidence intervals.
+# ==============================================================================
 
-# Define the compositional group for the evaluation metrics
-# 'comp_group' matrix contains the groupings of measurement items for compositional blocks
-comp_group = matrix(rep(c(multi_items('Attitude', 2:5), 
-                          multi_items('BI', c(1, 2, 4)), 
-                          multi_items('PBC', 3:5), 
-                          'SNnew'), each = 2))
-rownames(comp_group) = rownames(plsModel$outer_loadings)
+source("evaluation.R")
 
-# Calculate and print Cronbach's alpha
-print('cronbachs_alpha')
-cronbachs_alpha(plsModel)
+# Map each ILR indicator to its parent composition for COMP-CR calculation.
+# For example, Attitude1 & Attitude2 both map to composition "Attitude2",
+# Attitude3 & Attitude4 map to "Attitude3", etc.
+comp_group <- matrix(rep(
+  c(multi_items("Attitude", 2:5),
+    multi_items("BI", c(1, 2, 4)),
+    multi_items("PBC", 3:5),
+    "SNnew"),
+  each = 2
+))
+rownames(comp_group) <- rownames(plsModel$outer_loadings)
 
-# Calculate and print COMP-CR
-print('CR')
-calculate_CR(plsModel)
-calculate_CR(plsModel, comp_group = comp_group) # With compositional group
+cat("\n--- Cronbach's Alpha ---\n")
+print(cronbachs_alpha(plsModel))
 
-# Calculate and print R-squared (R2)
-print('R2')
-calculate_R2(plsModel)
+cat("\n--- Composite Reliability (CR) ---\n")
+print(calculate_CR(plsModel))
 
-# Calculate and print Bootstrap confidence intervals with 10000 resamples
-print('bootstrap')
-calculate_bootstrap(plsModel, nboot = 10000, seed = 123)
+cat("\n--- Compositional CR (COMP-CR) ---\n")
+print(calculate_CR(plsModel, comp_group = comp_group))
 
+cat("\n--- R-squared ---\n")
+print(calculate_R2(plsModel))
+
+cat("\n--- Bootstrap (nboot=10000) ---\n")
+print(calculate_bootstrap(plsModel, nboot = 10000, seed = 123))
